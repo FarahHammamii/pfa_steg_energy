@@ -1,0 +1,184 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.env
+*.env.*
+!example.env
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+*.duckdb.wal
+
+# Logs and data files
+logs/
+*.log
+data/
+*.csv
+*.xlsx
+*.xls
+!examples/*.csv
+!tests/fixtures/*.csv
+
+# Cache directories
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Configuration files with secrets
+config/local.py
+config/development.py
+config/.env
+!config/example.py
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+*.pid
+
+# OS specific files
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Project specific
+# Bronze layer raw data (if stored locally)
+bronze/raw_data/
+bronze/*.parquet
+bronze/*.csv
+
+# Silver layer intermediate files (if stored locally)
+silver/*.parquet
+silver/*.csv
+
+# Gold layer processed files (if stored locally)
+gold/*.parquet
+gold/*.csv
+
+# Backup files
+backup/
+*.backup.sql
+
+# API keys and credentials
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+
+# Testing
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Profiling data
+*.prof
+*.lprof
+
+# Airflow (if used later)
+airflow.cfg
+airflow.db
+webserver_config.py
+logs/
+airflow/logs/
+
+# dbt (if used later)
+dbt_modules/
+dbt_packages/
+logs/
+target/
+
+# Quality reports
+reports/
+*.html
+*.xml
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Custom local settings
+local_settings.py
+*.local.py
+
+# Large data files
+*.parquet
+*.feather
+*.arrow
+*.hdf5
+*.h5
+
+# Backup and archive files
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
