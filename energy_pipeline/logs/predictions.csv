@@ -1,0 +1,2 @@
+date,day_idx,actual_consumption,predicted_consumption,error,abs_error,timestamp
+2026-01-01,0,8234.0,8234.0,0.0,0.0,2026-04-18T16:23:50.147092

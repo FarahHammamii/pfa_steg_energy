@@ -1,0 +1,28 @@
+2026-04-18 16:21:53,746 | INFO | ======================================================================
+2026-04-18 16:21:53,746 | INFO | DAILY PREDICTION JOB STARTED
+2026-04-18 16:21:53,746 | ERROR | ERROR: CSV not found: consumption_2025.csv
+Traceback (most recent call last):
+  File "/root/energy_pipeline/energy_pipeline.py", line 237, in run_daily_prediction
+    df = load_csv()
+         ^^^^^^^^^^
+  File "/root/energy_pipeline/energy_pipeline.py", line 75, in load_csv
+    raise FileNotFoundError(f"CSV not found: {CSV_PATH}")
+FileNotFoundError: CSV not found: consumption_2025.csv
+2026-04-18 16:23:06,347 | INFO | ======================================================================
+2026-04-18 16:23:06,347 | INFO | DAILY PREDICTION JOB STARTED
+2026-04-18 16:23:06,347 | ERROR | ERROR: CSV not found: consumption_2026.csv
+Traceback (most recent call last):
+  File "/root/energy_pipeline/energy_pipeline.py", line 237, in run_daily_prediction
+    df = load_csv()
+         ^^^^^^^^^^
+  File "/root/energy_pipeline/energy_pipeline.py", line 75, in load_csv
+    raise FileNotFoundError(f"CSV not found: {CSV_PATH}")
+FileNotFoundError: CSV not found: consumption_2026.csv
+2026-04-18 16:23:50,144 | INFO | ======================================================================
+2026-04-18 16:23:50,145 | INFO | DAILY PREDICTION JOB STARTED
+2026-04-18 16:23:50,146 | INFO | Processing day 1/364: 2026-01-01
+2026-04-18 16:23:50,147 | INFO | First day: no prior history to predict from
+2026-04-18 16:23:50,148 | INFO | Day 0: actual=8234.00, predicted=8234.00, error=0.00
+2026-04-18 16:23:50,148 | INFO | State saved: day 1
+2026-04-18 16:23:50,148 | INFO | ======================================================================
+2026-04-18 16:23:50,148 | INFO | DAILY PREDICTION JOB COMPLETED
