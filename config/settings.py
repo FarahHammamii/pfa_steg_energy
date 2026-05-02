@@ -7,9 +7,12 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env from config/ directory
-_env_path = Path(__file__).parent / ".env"
-load_dotenv(_env_path)
+# Load .env from config/ or project root directory
+_project_root = Path(__file__).parent.parent
+_env_candidates = [Path(__file__).parent / ".env", _project_root / ".env"]
+for _env_path in _env_candidates:
+    if _env_path.exists():
+        load_dotenv(_env_path)
 
 # ── Database ────────────────────────────────────────────────
 NEON_DATABASE_URL: str = os.environ["NEON_DATABASE_URL"]
