@@ -38,9 +38,15 @@ def test_agents():
     print(f"  - Reasoning: {results['agents']['cut_advisor'].get('reasoning', 'N/A')[:200]}...")
     
     print(f"\nFairness Agent:")
-    print(f"  - Gini coefficient: {results['agents']['fairness'].get('fairness_score', 0)}")
+    print(f"  - Gini (count):    {results['agents']['fairness'].get('fairness_score', 0)}")
+    print(f"  - Gini (weighted): {results['agents']['fairness'].get('fairness_score_weighted', 0)}")
+    print(f"  - Gini (duration): {results['agents']['fairness'].get('fairness_score_duration', 0)}")
+    print(f"  - Traffic light:   {results['agents']['fairness'].get('traffic_light', {})}")
+    print(f"  - Trend:           {results['agents']['fairness'].get('trend_direction', {}).get('summary', 'N/A')}")
     print(f"  - Needs rebalancing: {results['agents']['fairness'].get('needs_rebalancing', False)}")
-    
+    print(f"  - Double penalty:  {results['agents']['fairness'].get('double_penalty', [])}")
+    print(f"  - Per capita top:  {results['agents']['fairness'].get('per_capita_burden', [])[:2]}")
+        
     print(f"\nForecast Agent:")
     print(f"  - Next month: {results['agents']['forecast'].get('next_month_prediction', 'N/A')} GWh")
     print(f"  - Trend: {results['agents']['forecast'].get('trend', 'N/A')}")
