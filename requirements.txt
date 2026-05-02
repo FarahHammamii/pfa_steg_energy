@@ -17,4 +17,5 @@ python-jose[cryptography]
 uvicorn
 passlib[bcrypt]
 pydantic[email]
+langgraph==0.2.39
 

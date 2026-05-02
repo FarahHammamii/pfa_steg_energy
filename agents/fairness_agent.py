@@ -227,13 +227,17 @@ class FairnessAgent(BaseAgent):
                 FROM silver.cut_history
                 ORDER BY cut_date DESC
             """
-            with get_cursor(dict_cursor=True) as cur:
-                cur.execute(query_fallback)
-                rows = cur.fetchall()
-                df = pd.DataFrame(rows) if rows else pd.DataFrame()
-                if len(df) > 0:
-                    df['severity_tier'] = 'cut_immediately'
-                return df
+            try:
+                with get_cursor(dict_cursor=True) as cur:
+                    cur.execute(query_fallback)
+                    rows = cur.fetchall()
+                    df = pd.DataFrame(rows) if rows else pd.DataFrame()
+                    if len(df) > 0:
+                        df['severity_tier'] = 'cut_immediately'
+                    return df
+            except Exception as fallback_error:
+                logger.warning(f"Cut history unavailable: {fallback_error}")
+                return pd.DataFrame()
 
     def _load_consumption(self) -> pd.DataFrame:
         """Load regional consumption shares for weighted Gini."""

@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, Any, List
 from datetime import datetime
 from agents.base_agent import BaseAgent
+from agents.fairness_agent import FairnessAgent
 from agents.data_loader import DataLoader
 from utils.db import get_cursor
 from utils.logger import get_logger
@@ -36,7 +37,7 @@ class CutAdvisorAgent(BaseAgent):
         super().__init__("Cut Advisor Agent")
         self.data_loader = DataLoader()
         
-    def analyze(self) -> Dict[str, Any]:
+    def analyze(self, apply_fairness: bool = True) -> Dict[str, Any]:
         """Main analysis - recommend cut order based on multiple factors"""
         
         # Load data
@@ -56,11 +57,28 @@ class CutAdvisorAgent(BaseAgent):
         # Generate recommendations
         recommendations = self._generate_recommendations(region_scores, current_production)
         
+        fairness_review = None
+        if apply_fairness and recommendations.get('cut_first'):
+            fairness_review = self._review_with_fairness(recommendations['cut_first'])
+
+            if fairness_review and not fairness_review.get('approved'):
+                substitution = fairness_review.get('substitution')
+                if substitution and recommendations['cut_first']:
+                    replaced = recommendations['cut_first'][-1]
+                    recommendations['cut_first'] = recommendations['cut_first'][:-1] + [substitution]
+                    fairness_review['applied_substitution'] = {
+                        'replaced': replaced,
+                        'added': substitution,
+                    }
+
         # Use LLM to explain reasoning if available
         if client and recommendations.get('cut_first'):
             explanation = self._get_llm_explanation(recommendations, current_production)
         else:
             explanation = self._get_fallback_explanation(recommendations, current_production)
+
+        if fairness_review and fairness_review.get('message'):
+            explanation = f"{explanation} Fairness review: {fairness_review['message']}"
         
         return {
             'status': 'success',
@@ -68,8 +86,14 @@ class CutAdvisorAgent(BaseAgent):
             'cut_priority_list': recommendations['cut_first'],
             'protected_regions': recommendations['protect'],
             'reasoning': explanation,
+            'fairness_review': fairness_review,
             'region_scores': region_scores.to_dict('records') if len(region_scores) > 0 else []
         }
+
+    def _review_with_fairness(self, proposed_regions: List[str]) -> Dict[str, Any]:
+        """Ask FairnessAgent to validate the proposed cut list."""
+        fairness_agent = FairnessAgent()
+        return fairness_agent.validate_cut_list(proposed_regions)
     
     def _get_current_production_status(self) -> Dict[str, Any]:
         """Check if production is below normal"""
