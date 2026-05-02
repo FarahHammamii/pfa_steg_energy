@@ -23,6 +23,7 @@ optimization.
 -   Data Models
 -   ETL Pipeline
 -   LLM Analytics
+-   Agents
 -   Contributing
 -   License
 
