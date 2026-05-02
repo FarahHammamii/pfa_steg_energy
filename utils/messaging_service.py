@@ -1,11 +1,10 @@
 """
 Messaging service abstraction for agent notifications.
-Supports Odoo Discuss, Email, and n8n webhooks.
+Supports n8n webhooks and a generic alert webhook (Slack, Teams, Discord, etc.).
 Extensible for multiple delivery channels.
 """
 
 import os
-import json
 import requests
 from typing import Dict, Any, List, Optional
 from utils.logger import get_logger
@@ -35,17 +34,18 @@ class MessageEvent:
 class MessagingService:
     """
     Central messaging service for agent notifications.
-    Supports multiple backends: Odoo, Email, n8n webhooks.
+    Supports multiple backends: n8n webhooks, generic alert webhook.
+
+    Environment variables:
+        N8N_WEBHOOK_URL      - n8n webhook endpoint
+        ENABLE_N8N_MESSAGING - set to "true" to enable n8n delivery
+        ALERT_WEBHOOK_URL    - generic webhook (Slack, Teams, Discord, etc.)
     """
 
     def __init__(self):
-        self.odoo_client = None
         self.n8n_webhook_url = os.getenv("N8N_WEBHOOK_URL")
         self.enable_n8n = os.getenv("ENABLE_N8N_MESSAGING", "false").lower() == "true"
-
-    def set_odoo_client(self, odoo_client):
-        """Inject Odoo client for Discuss messaging."""
-        self.odoo_client = odoo_client
+        self.alert_webhook_url = os.getenv("ALERT_WEBHOOK_URL")
 
     def send_fairness_alert(
         self,
@@ -58,13 +58,13 @@ class MessagingService:
         Send fairness alert about a region.
 
         Args:
-            region: Region name
-            issue: Type of issue (e.g., "cut_too_often", "double_penalty")
+            region:   Region name
+            issue:    Type of issue (e.g., "cut_too_often", "double_penalty")
             severity: "high", "medium", "low"
-            metrics: Dict with fairness metrics
+            metrics:  Dict with fairness metrics
 
         Returns:
-            True if sent successfully
+            True if sent successfully via at least one channel
         """
         event = MessageEvent(
             event_type="fairness_alert",
@@ -77,23 +77,8 @@ class MessagingService:
             },
         )
 
-        success = True
-
-        # Send via Odoo if available
-        if self.odoo_client and self.odoo_client.is_connected():
-            title = f"Fairness Alert: Region {region}"
-            message = f"Issue: {issue} (Severity: {severity})"
-            if not self.odoo_client.get_manager_by_region(region):
-                logger.warning(f"Manager not found for {region}")
-            else:
-                # Note: This will be called from the agent after logging
-                pass
-
-        # Send via n8n if enabled
-        if self.enable_n8n:
-            success = success and self._send_to_n8n(event)
-
-        logger.info(f"Fairness alert sent for {region}: {issue}")
+        success = self._dispatch(event)
+        logger.info(f"Fairness alert sent for {region}: {issue} (success={success})")
         return success
 
     def send_cut_validation_result(
@@ -108,10 +93,10 @@ class MessagingService:
         Send cut validation result (cross-agent communication).
 
         Args:
-            cut_list: List of regions proposed for cut
-            approved: Whether Fairness Agent approved
-            gini_before: Gini before proposed cuts
-            gini_after: Gini after proposed cuts
+            cut_list:     List of regions proposed for cut
+            approved:     Whether Fairness Agent approved
+            gini_before:  Gini before proposed cuts
+            gini_after:   Gini after proposed cuts
             substitution: Suggested alternative region if rejected
 
         Returns:
@@ -129,13 +114,8 @@ class MessagingService:
             },
         )
 
-        success = True
-
-        # Send via n8n if enabled (for orchestration feedback)
-        if self.enable_n8n:
-            success = success and self._send_to_n8n(event)
-
-        logger.info(f"Cut validation result sent: approved={approved}")
+        success = self._dispatch(event)
+        logger.info(f"Cut validation result sent: approved={approved} (success={success})")
         return success
 
     def send_maintenance_ticket_created(
@@ -145,7 +125,15 @@ class MessagingService:
         gini_evidence: str,
     ) -> bool:
         """
-        Notify that maintenance ticket was created for a region.
+        Notify that a maintenance ticket was created for a region.
+
+        Args:
+            region:        Region name
+            ticket_id:     Created ticket ID
+            gini_evidence: Summary of Gini evidence that triggered the ticket
+
+        Returns:
+            True if notification sent
         """
         event = MessageEvent(
             event_type="maintenance_ticket_created",
@@ -157,10 +145,9 @@ class MessagingService:
             },
         )
 
-        if self.enable_n8n:
-            return self._send_to_n8n(event)
-
-        return True
+        success = self._dispatch(event)
+        logger.info(f"Maintenance ticket notification sent for {region} (success={success})")
+        return success
 
     def send_rotation_schedule(
         self,
@@ -170,6 +157,14 @@ class MessagingService:
     ) -> bool:
         """
         Send rotating schedule for operator action.
+
+        Args:
+            schedule:       Dict mapping time slots to region lists
+            current_gini:   Current Gini coefficient
+            projected_gini: Projected Gini after applying the schedule
+
+        Returns:
+            True if notification sent
         """
         event = MessageEvent(
             event_type="rotation_schedule",
@@ -181,41 +176,90 @@ class MessagingService:
             },
         )
 
-        if self.enable_n8n:
-            return self._send_to_n8n(event)
+        success = self._dispatch(event)
+        logger.info(f"Rotation schedule sent (success={success})")
+        return success
 
-        return True
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _dispatch(self, event: MessageEvent) -> bool:
+        """
+        Dispatch an event to all enabled channels.
+        Returns True if at least one channel succeeded.
+        """
+        results = []
+
+        if self.enable_n8n:
+            results.append(self._send_to_n8n(event))
+
+        if self.alert_webhook_url:
+            results.append(self._send_to_alert_webhook(event))
+
+        if not results:
+            logger.warning(
+                f"No messaging channels configured for event '{event.event_type}'. "
+                "Set N8N_WEBHOOK_URL/ENABLE_N8N_MESSAGING or ALERT_WEBHOOK_URL."
+            )
+            return False
+
+        return any(results)
 
     def _send_to_n8n(self, event: MessageEvent) -> bool:
-        """Send event to n8n webhook."""
+        """Send event to the n8n webhook endpoint."""
         if not self.n8n_webhook_url:
-            logger.warning("N8N_WEBHOOK_URL not configured")
+            logger.warning("N8N_WEBHOOK_URL is not configured")
             return False
 
+        return self._post_webhook(
+            url=self.n8n_webhook_url,
+            payload=event.to_dict(),
+            channel="n8n",
+        )
+
+    def _send_to_alert_webhook(self, event: MessageEvent) -> bool:
+        """
+        Send event to the generic alert webhook.
+        Works with Slack incoming webhooks, Microsoft Teams, Discord, or any
+        service that accepts a JSON POST (set ALERT_WEBHOOK_URL accordingly).
+        """
+        return self._post_webhook(
+            url=self.alert_webhook_url,
+            payload=event.to_dict(),
+            channel="alert_webhook",
+        )
+
+    def _post_webhook(self, url: str, payload: dict, channel: str) -> bool:
+        """Shared POST logic for all webhook-based channels."""
         try:
-            payload = event.to_dict()
-            response = requests.post(
-                self.n8n_webhook_url,
-                json=payload,
-                timeout=5,
-            )
+            response = requests.post(url, json=payload, timeout=5)
             if response.status_code in [200, 201]:
-                logger.info(f"Event sent to n8n: {event.event_type}")
+                logger.info(f"Event '{payload.get('event_type')}' delivered via {channel}")
                 return True
             else:
-                logger.error(f"n8n webhook returned {response.status_code}")
+                logger.error(
+                    f"[{channel}] webhook returned HTTP {response.status_code}: "
+                    f"{response.text[:200]}"
+                )
                 return False
+        except requests.exceptions.Timeout:
+            logger.error(f"[{channel}] webhook timed out")
+            return False
         except Exception as e:
-            logger.error(f"Failed to send to n8n: {e}")
+            logger.error(f"[{channel}] failed to send event: {e}")
             return False
 
 
+# ------------------------------------------------------------------
 # Global singleton
-_messaging_service = None
+# ------------------------------------------------------------------
+
+_messaging_service: Optional[MessagingService] = None
 
 
 def get_messaging_service() -> MessagingService:
-    """Get or create global messaging service."""
+    """Get or create the global messaging service singleton."""
     global _messaging_service
     if _messaging_service is None:
         _messaging_service = MessagingService()
