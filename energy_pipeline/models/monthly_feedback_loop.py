@@ -1,13 +1,18 @@
+"""
+energy_pipeline/models/monthly_feedback_loop.py
+Monthly production forecasting with synthetic data generation and model training
+"""
 import calendar
-import logging
-from datetime import datetime
+from pathlib import Path
+import sys
 from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import SGDClassifier, SGDRegressor
 
-from utils.db import get_cursor
+sys.path.append(str(Path(__file__).parent.parent.parent))
+from utils.db import get_cursor, execute_batch
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -101,7 +106,7 @@ def train_reason_model(history: pd.DataFrame) -> SGDClassifier:
     classifier = SGDClassifier(
         max_iter=1000,
         tol=1e-3,
-        loss="log",
+        loss="log_loss",
         random_state=42,
     )
     classifier.fit(X, y)
@@ -231,11 +236,6 @@ def insert_monthly_production_row(row: Dict) -> None:
         total_production_gwh, avg_renewable_share_pct,
         growth_rate_pct
     ) VALUES (%s, %s, %s, %s, %s, %s)
-    ON CONFLICT (year, month) DO UPDATE SET
-        month_name = EXCLUDED.month_name,
-        total_production_gwh = EXCLUDED.total_production_gwh,
-        avg_renewable_share_pct = EXCLUDED.avg_renewable_share_pct,
-        growth_rate_pct = EXCLUDED.growth_rate_pct
     """
     with get_cursor() as cur:
         cur.execute(
@@ -273,6 +273,8 @@ def load_monthly_history() -> pd.DataFrame:
     df["month_number"] = df["month"].astype(int)
     cyclical = df["month_number"].apply(cyclical_month_features).tolist()
     df = pd.concat([df, pd.DataFrame(cyclical)], axis=1)
+    # Fill NaN values with 0 for features
+    df.fillna(0, inplace=True)
     return df
 
 
