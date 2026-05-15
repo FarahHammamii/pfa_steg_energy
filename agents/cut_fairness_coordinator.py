@@ -10,6 +10,7 @@ import sys
 from typing import Dict, Any, TypedDict
 
 from langgraph.graph import StateGraph, END
+from langgraph.errors import InvalidUpdateError
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -26,13 +27,18 @@ class CoordinatorState(TypedDict, total=False):
 def run_cut_advisor(state: CoordinatorState) -> CoordinatorState:
     agent = CutAdvisorAgent()
     result = agent.analyze(apply_fairness=False)
+    if result is None:
+        result = {}
     return {"cut_result": result}
 
 
 def run_fairness_review(state: CoordinatorState) -> CoordinatorState:
     fairness_agent = FairnessAgent()
-    proposed = state.get("cut_result", {}).get("cut_priority_list", [])
+    cut_result = state.get("cut_result") or {}
+    proposed = cut_result.get("cut_priority_list", [])
     review = fairness_agent.validate_cut_list(proposed)
+    if review is None:
+        review = {}
     return {"fairness_review": review}
 
 
@@ -59,12 +65,12 @@ def finalize_output(state: CoordinatorState) -> CoordinatorState:
 def build_graph():
     graph = StateGraph(CoordinatorState)
     graph.add_node("cut_advisor", run_cut_advisor)
-    graph.add_node("fairness_review", run_fairness_review)
+    graph.add_node("fairness_node", run_fairness_review)
     graph.add_node("finalize", finalize_output)
 
     graph.set_entry_point("cut_advisor")
-    graph.add_edge("cut_advisor", "fairness_review")
-    graph.add_edge("fairness_review", "finalize")
+    graph.add_edge("cut_advisor", "fairness_node")
+    graph.add_edge("fairness_node", "finalize")
     graph.add_edge("finalize", END)
 
     return graph.compile()
@@ -72,8 +78,14 @@ def build_graph():
 
 def run_coordinator() -> Dict[str, Any]:
     graph = build_graph()
-    state = graph.invoke({})
-    return state.get("final_result", {})
+    try:
+        state = graph.invoke({})
+        return state.get("final_result", {})
+    except InvalidUpdateError:
+        cut_state = run_cut_advisor({})
+        fairness_state = run_fairness_review(cut_state)
+        final_state = finalize_output({**cut_state, **fairness_state})
+        return final_state.get("final_result", {})
 
 
 if __name__ == "__main__":
