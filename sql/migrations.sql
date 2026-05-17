@@ -176,6 +176,9 @@ CREATE TABLE IF NOT EXISTS public.citizen_reports (
     status          TEXT NOT NULL DEFAULT 'open',
     resolved_at     TIMESTAMP,
     resolution_note TEXT,
+    satisfaction_score INTEGER,
+    analyzed_sentiment TEXT,
+    sentiment_confidence FLOAT,
     CONSTRAINT valid_report_status CHECK (status IN ('open', 'in_progress', 'resolved', 'closed'))
 );
 

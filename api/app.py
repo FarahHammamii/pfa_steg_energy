@@ -757,7 +757,7 @@ async def get_active_cut_details(
             LEFT JOIN public.cut_executions ce ON ce.cut_plan_id = cp.id
             WHERE cp.status = 'approved'
               AND cp.scheduled_date = %s
-              AND (ce.status IS NULL OR ce.status != 'completed')
+              AND (ce.status IS NULL OR ce.status != 'restored')
             ORDER BY cp.scheduled_start
         """, (today,))
         active_cuts = cur.fetchall()
@@ -805,6 +805,15 @@ async def plan_cut_direct(
         scheduled_start_time = datetime.strptime(body.scheduled_start, "%H:%M").time()
     except ValueError:
         raise HTTPException(400, "scheduled_start must be in HH:MM format")
+
+    normalized_regions = [
+        _normalize_region(region) for region in (body.regions or [])
+        if region and _normalize_region(region)
+    ]
+    # Remove duplicates while keeping order
+    normalized_regions = list(dict.fromkeys(normalized_regions))
+    if not normalized_regions:
+        raise HTTPException(400, "regions must include at least one valid entry")
     
     plan_ref = f"CUT-{body.scheduled_date.strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}"
     
@@ -830,7 +839,7 @@ async def plan_cut_direct(
         """, (
             plan_ref,
             user["username"],
-            body.regions,
+            normalized_regions,
             [],  # protected_regions
             'approved',  # Use 'approved' - this is allowed by constraint
             body.scheduled_date,
@@ -855,7 +864,7 @@ async def plan_cut_direct(
         execution_id = cur.fetchone()[0]
     
     # Send notifications in background
-    for region in body.regions:
+    for region in normalized_regions:
         background_tasks.add_task(
             send_cut_notification,
             region,
@@ -879,7 +888,7 @@ async def plan_cut_direct(
         "execution_id": execution_id,
         "plan_ref": plan_ref,
         "alert_level": alert_level,
-        "affected_regions": body.regions,
+        "affected_regions": normalized_regions,
         "scheduled_date": body.scheduled_date.isoformat(),
         "scheduled_start": body.scheduled_start,
         "estimated_duration_hours": body.estimated_duration_hours,
@@ -925,10 +934,10 @@ async def complete_cut(
         else:
             duration_min = int(exec_row[6] * 60) if exec_row[6] else 60
         
-        # Update execution to 'completed'
+        # Update execution to 'restored'
         cur.execute("""
             UPDATE public.cut_executions
-            SET status = 'completed',
+            SET status = 'restored',
                 actual_end = %s,
                 actual_duration_minutes = %s,
                 notes = %s,
@@ -940,11 +949,9 @@ async def complete_cut(
         cur.execute("""
             UPDATE public.cut_plans
             SET status = 'executed',
-                restored_at = %s,
-                restored_by = %s,
                 updated_at = NOW()
             WHERE id = %s
-        """, (actual_end, user["username"], body.plan_id))
+        """, (body.plan_id,))
         
         regions = exec_row[3] or []
         season = _get_season(actual_end.month)
@@ -953,9 +960,9 @@ async def complete_cut(
         for region in regions:
             cur.execute("""
                 INSERT INTO silver.cut_history
-                  (region, cut_date, duration_minutes, season, executed_by, plan_ref)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (region, actual_end.date(), duration_min, season, user["username"], exec_row[5]))
+                  (region, cut_date, duration_minutes, reason, season)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (region, actual_end.date(), duration_min, f"plan:{exec_row[5]}", season))
         
         # Send restoration notifications
         for region in regions:
@@ -1007,7 +1014,7 @@ async def restore_active_cut(
     """
     RESTORE POWER DURING ACTIVE CUT
     Just provide the plan_id - execution is found automatically.
-    This will mark the cut as completed and send restoration notifications.
+    This will mark the cut as restored and send restoration notifications.
     """
     now = datetime.now()
     actual_end = body.actual_end or now
@@ -1031,8 +1038,8 @@ async def restore_active_cut(
         if plan[5] != 'approved':
             raise HTTPException(409, f"Plan status is '{plan[5]}', not eligible for restoration. Only 'approved' cuts can be restored.")
         
-        if plan[8] == 'completed':
-            raise HTTPException(409, "Cut already completed")
+        if plan[8] == 'restored':
+            raise HTTPException(409, "Cut already restored")
         
         # Check if cut is scheduled for today or past
         if plan[3] and plan[3] > date.today():
@@ -1051,7 +1058,7 @@ async def restore_active_cut(
         if execution_id:
             cur.execute("""
                 UPDATE public.cut_executions
-                SET status = 'completed',
+                SET status = 'restored',
                     actual_end = %s,
                     actual_duration_minutes = %s,
                     notes = COALESCE(notes || E'\n' || %s, %s),
@@ -1064,7 +1071,7 @@ async def restore_active_cut(
                 INSERT INTO public.cut_executions
                 (cut_plan_id, executed_by, executed_by_name, actual_start, actual_end, 
                  actual_duration_minutes, status, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, 'completed', %s)
+                VALUES (%s, %s, %s, %s, %s, %s, 'restored', %s)
                 RETURNING id
             """, (body.plan_id, user["username"], user["full_name"], start_time or now, 
                   actual_end, duration_min, f"Restored by {user['username']}: {body.notes or ''}"))
@@ -1074,11 +1081,9 @@ async def restore_active_cut(
         cur.execute("""
             UPDATE public.cut_plans
             SET status = 'executed',
-                restored_at = %s,
-                restored_by = %s,
                 updated_at = NOW()
             WHERE id = %s
-        """, (actual_end, user["username"], body.plan_id))
+        """, (body.plan_id,))
         
         regions = plan[2] or []
         season = _get_season(actual_end.month)
@@ -1087,9 +1092,9 @@ async def restore_active_cut(
         for region in regions:
             cur.execute("""
                 INSERT INTO silver.cut_history
-                  (region, cut_date, duration_minutes, season, executed_by, plan_ref)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (region, actual_end.date(), duration_min, season, user["username"], plan[1]))
+                  (region, cut_date, duration_minutes, reason, season)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (region, actual_end.date(), duration_min, f"plan:{plan[1]}", season))
         
         # Send restoration notifications
         for region in regions:
@@ -1213,7 +1218,7 @@ async def get_active_cut_details(
             LEFT JOIN public.cut_executions ce ON ce.cut_plan_id = cp.id
             WHERE cp.status = 'approved'
               AND cp.scheduled_date = %s
-              AND (ce.status IS NULL OR ce.status NOT IN ('completed', 'cancelled'))
+              AND (ce.status IS NULL OR ce.status NOT IN ('restored', 'cancelled'))
             ORDER BY cp.scheduled_start
         """, (today,))
         active_cuts = cur.fetchall()
@@ -1305,7 +1310,7 @@ async def supervisor_dashboard(user: dict = Depends(require_role(["supervisor", 
 
         cur.execute("""
             SELECT
-                COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+                COUNT(*) FILTER (WHERE status = 'executed') AS completed,
                 COUNT(*) FILTER (WHERE status = 'scheduled') AS scheduled,
                 COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,
                 COUNT(*) AS total
@@ -1524,6 +1529,14 @@ async def supervisor_citizen_reports(
 # SATISFACTION ANALYSIS ENDPOINTS
 # ════════════════════════════════════════════════════════════════
 
+class CitizenReportDetail(BaseModel):
+    id: int
+    region: str
+    report_type: str
+    description: Optional[str]
+    reported_at: str
+    sentiment: Optional[str]
+
 class SatisfactionAnalysisResponse(BaseModel):
     total_reports: int
     satisfied_count: int
@@ -1531,6 +1544,7 @@ class SatisfactionAnalysisResponse(BaseModel):
     satisfaction_rate: float
     breakdown_by_type: Dict[str, Dict[str, int]]
     explanation: str
+    reports: List[CitizenReportDetail] = []
 
 def analyze_report_satisfaction(report_id: int, description: str):
     """Analyze a single report's satisfaction using Groq"""
@@ -1563,6 +1577,34 @@ def analyze_report_satisfaction(report_id: int, description: str):
     except Exception as e:
         logger.error(f"Satisfaction analysis failed for report {report_id}: {e}")
 
+def analyze_report_sentiment_sync(description: str) -> str:
+    """Synchronously analyze sentiment from a report description using Groq"""
+    if not groq_client or not description:
+        return None
+    
+    prompt = f"""
+    Analyze this citizen report about power issues and classify if the citizen is SATISFIED or UNSATISFIED.
+    
+    Report: "{description}"
+    
+    Reply ONLY with one word: satisfied or unsatisfied
+    """
+    
+    try:
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=50
+        )
+        sentiment = response.choices[0].message.content.strip().lower()
+        if sentiment in ["satisfied", "unsatisfied"]:
+            return sentiment
+        return None
+    except Exception as e:
+        logger.error(f"Sentiment analysis failed: {e}")
+        return None
+
 @app.get("/api/supervisor/satisfaction-analysis", tags=["Supervisor"])
 async def get_satisfaction_analysis(
     days: int = Query(30, ge=1, le=365),
@@ -1572,12 +1614,29 @@ async def get_satisfaction_analysis(
     
     with get_cursor(dict_cursor=True) as cur:
         cur.execute("""
-            SELECT id, report_type, satisfaction_score, description, analyzed_sentiment
+            SELECT id, region, report_type, satisfaction_score, description, analyzed_sentiment, reported_at
             FROM public.citizen_reports
             WHERE reported_at >= NOW() - INTERVAL '%s days'
             ORDER BY reported_at DESC
         """, (days,))
         reports = cur.fetchall()
+    
+    # If there are reports without sentiment analysis, queue them for analysis
+    unanalyzed_reports = [r for r in reports if not r.get("analyzed_sentiment")]
+    if unanalyzed_reports and groq_client:
+        # Analyze them synchronously in batches (first 10 for this request)
+        for report in unanalyzed_reports[:10]:
+            if report.get("description"):
+                sentiment = analyze_report_sentiment_sync(report.get("description", ""))
+                if sentiment:
+                    with get_cursor() as cur:
+                        cur.execute("""
+                            UPDATE public.citizen_reports
+                            SET analyzed_sentiment = %s
+                            WHERE id = %s
+                        """, (sentiment, report["id"]))
+                    # Update the in-memory report object
+                    report["analyzed_sentiment"] = sentiment
     
     total = len(reports)
     
@@ -1648,13 +1707,30 @@ async def get_satisfaction_analysis(
     else:
         explanation = f"Based on {total} reports over {days} days, {satisfaction_rate:.1f}% of citizens reported satisfaction. {analysis_method} was used."
     
+    # Format reports with sentiment data
+    formatted_reports = []
+    for report in reports:
+        reported_at = report.get("reported_at")
+        if isinstance(reported_at, datetime):
+            reported_at = reported_at.isoformat()
+        
+        formatted_reports.append(CitizenReportDetail(
+            id=report.get("id"),
+            region=report.get("region", ""),
+            report_type=report.get("report_type", ""),
+            description=report.get("description", ""),
+            reported_at=str(reported_at),
+            sentiment=report.get("analyzed_sentiment")
+        ))
+    
     return SatisfactionAnalysisResponse(
         total_reports=total,
         satisfied_count=satisfied_count,
         unsatisfied_count=unsatisfied_count,
         satisfaction_rate=round(satisfaction_rate, 1),
         breakdown_by_type=breakdown_by_type,
-        explanation=explanation
+        explanation=explanation,
+        reports=formatted_reports
     )
 
 @app.post("/api/supervisor/analyze-reports", tags=["Supervisor"])
@@ -1775,9 +1851,12 @@ async def supervisor_trigger_agents(
 async def regions_list(user: Optional[dict] = Depends(optional_auth)):
     with get_cursor(dict_cursor=True) as cur:
         cur.execute("""
-            SELECT DISTINCT region, gouvernorat
+            SELECT DISTINCT
+                LOWER(COALESCE(NULLIF(TRIM(gouvernorat), ''), NULLIF(TRIM(region), ''))) AS region,
+                LOWER(NULLIF(TRIM(gouvernorat), '')) AS gouvernorat
             FROM silver.districts
-            WHERE region IS NOT NULL
+            WHERE (gouvernorat IS NOT NULL AND TRIM(gouvernorat) <> '')
+               OR (region IS NOT NULL AND TRIM(region) <> '')
             ORDER BY region
         """)
         rows = cur.fetchall()
