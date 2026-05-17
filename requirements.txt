@@ -10,6 +10,7 @@ psycopg2-binary>=2.9.9
 chardet==7.3.0
 sqlalchemy==2.0.23
 requests==2.31.0
+scikit-learn
 xlrd==2.0.2
 fastapi
 bcrypt

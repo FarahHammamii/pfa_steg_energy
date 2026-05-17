@@ -1,0 +1,389 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "STEG Observatory API",
+    "version": "3.0.0",
+    "description": "API for Citizen and Supervisor dashboards"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Development server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "summary": "Login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {"type": "string"},
+                  "demo_mode": {"type": "boolean", "default": true}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful login",
+            "content": {
+              "application/json": {
+                "example": {
+                  "access_token": "eyJhbGc...",
+                  "username": "sup_tunis",
+                  "full_name": "Supervisor Tunis",
+                  "role": "supervisor"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/citizen/grid-status": {
+      "get": {
+        "summary": "Get grid status",
+        "responses": {
+          "200": {
+            "description": "Grid status",
+            "content": {
+              "application/json": {
+                "example": {
+                  "alert_level": "ORANGE",
+                  "deficit_pct": 12.5,
+                  "current_gwh": 1705.4,
+                  "normal_gwh": 1800.0,
+                  "message_fr": "Alerte haute : déficit de production détecté",
+                  "message_ar": "تحذير عالي: عجز في الإنتاج",
+                  "message_en": "High alert: Production deficit detected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/citizen/map": {
+      "get": {
+        "summary": "Get region map data",
+        "responses": {
+          "200": {
+            "description": "List of regions with coordinates and risk levels",
+            "content": {
+              "application/json": {
+                "example": [
+                  {
+                    "region": "tunis",
+                    "gouvernorat": "Tunis",
+                    "lat": 36.8065,
+                    "lon": 10.1815,
+                    "risk_level": "medium",
+                    "fairness_score": 85,
+                    "cut_count_90d": 3
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/citizen/my-zone": {
+      "get": {
+        "summary": "Get region details",
+        "parameters": [
+          {
+            "name": "region",
+            "in": "query",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Region details",
+            "content": {
+              "application/json": {
+                "example": {
+                  "region": "tunis",
+                  "fairness_score": 85,
+                  "my_cuts_90d": 3,
+                  "national_avg": 4.2,
+                  "next_cut": {
+                    "scheduled_date": "2026-05-25",
+                    "scheduled_start": "14:00:00",
+                    "estimated_duration_hours": 2.5
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/citizen/report": {
+      "post": {
+        "summary": "Submit citizen report",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "region": {"type": "string"},
+                  "report_type": {"type": "string", "enum": ["outage", "voltage_issue", "billing", "other"]},
+                  "description": {"type": "string"},
+                  "satisfaction_score": {"type": "integer", "minimum": 1, "maximum": 5}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/citizen/subscribe": {
+      "post": {
+        "summary": "Subscribe to notifications",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "region": {"type": "string"},
+                  "email": {"type": "string", "format": "email"},
+                  "lang": {"type": "string", "enum": ["fr", "ar"], "default": "fr"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/dashboard": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Get supervisor dashboard data",
+        "responses": {
+          "200": {
+            "description": "Dashboard KPIs",
+            "content": {
+              "application/json": {
+                "example": {
+                  "alert_level": "ORANGE",
+                  "production": {
+                    "current_gwh": 1705.4,
+                    "mom_change_pct": -0.9,
+                    "renewable_share": 0.65
+                  },
+                  "fairness": {
+                    "gini_coefficient": 0.28,
+                    "gini_label": "fair"
+                  },
+                  "plans": {
+                    "scheduled": 3,
+                    "completed_30d": 12
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/trigger-agents": {
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Run CutAdvisor + FairnessAgent coordination",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "generate_synthetic": {"type": "boolean", "default": false}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agent coordination results",
+            "content": {
+              "application/json": {
+                "example": {
+                  "alert_level": "ORANGE",
+                  "cut_regions": ["kebili", "tataouine", "gafsa"],
+                  "protected_regions": ["tunis", "sfax"],
+                  "fairness_approved": true,
+                  "fairness_message": "Approved. Gini stays at 0.28"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/plan-cut": {
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Plan a direct cut (no approval needed)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["regions", "scheduled_date", "scheduled_start", "estimated_duration_hours"],
+                "properties": {
+                  "regions": {"type": "array", "items": {"type": "string"}},
+                  "scheduled_date": {"type": "string", "format": "date"},
+                  "scheduled_start": {"type": "string", "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"},
+                  "estimated_duration_hours": {"type": "number", "minimum": 0.5, "maximum": 24},
+                  "reason": {"type": "string"},
+                  "deficit_pct": {"type": "number", "default": 0}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/restore-active-cut": {
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Restore power during active cut",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["plan_id"],
+                "properties": {
+                  "plan_id": {"type": "integer"},
+                  "notes": {"type": "string"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/cancel-cut": {
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Cancel scheduled cut",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["plan_id", "cancellation_reason"],
+                "properties": {
+                  "plan_id": {"type": "integer"},
+                  "cancellation_reason": {"type": "string"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/production-forecast": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Get ML production forecast",
+        "parameters": [
+          {
+            "name": "months",
+            "in": "query",
+            "schema": {"type": "integer", "default": 6, "minimum": 1, "maximum": 12}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Forecast data",
+            "content": {
+              "application/json": {
+                "example": {
+                  "forecasts": [
+                    {
+                      "forecast_date": "2026-07-01",
+                      "predicted_gwh": 1967.73,
+                      "confidence_lower": -909.94,
+                      "confidence_upper": 4845.39
+                    }
+                  ],
+                  "historical": [],
+                  "forecast_method": "Seasonal + Trend Model with ML (SGD)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/fairness-heatmap": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Get fairness analysis by region",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {"type": "integer", "default": 90}
+          }
+        ]
+      }
+    },
+    "/api/supervisor/satisfaction-analysis": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Get AI-powered satisfaction analysis",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {"type": "integer", "default": 30}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Satisfaction analysis",
+            "content": {
+              "application/json": {
+                "example": {
+                  "total_reports": 45,
+                  "satisfied_count": 28,
+                  "unsatisfied_count": 17,
+                  "satisfaction_rate": 62.2,
+                  "explanation": "Most complaints are about outage duration..."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
